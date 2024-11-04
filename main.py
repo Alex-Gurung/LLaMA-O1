@@ -155,27 +155,27 @@ class TreeNode:
         return False
 
     def get_child_policy_prob(self, child):
-        # 提取logit值并转换为数组
+        # 提取logit值并转换为数组 - Extract logit values and convert to array
         logits = torch.tensor(list(self.policy.values()))
         prob, log_prob = robust_softmax(logits)
 
-        # 构建新的字典，将键与Softmax概率对应
+        # 构建新的字典，将键与Softmax概率对应 - Build a new dictionary, mapping keys to Softmax probabilities
         return {key: prob for key, prob in zip(self.policy.keys(), prob)}[child]
     
     def get_child_policy_entropy(self, child):
-        # 提取logit值并转换为数组
+        # 提取logit值并转换为数组 - Extract logit values and convert to array
         logits = torch.tensor(list(self.policy_entropy.values()))
         prob, log_prob = robust_softmax(logits)
 
-        # 构建新的字典，将键与Softmax概率对应
+        # 构建新的字典，将键与Softmax概率对应 - Build a new dictionary, mapping keys to Softmax probabilities
         return {key: prob for key, prob in zip(self.policy_entropy.keys(), prob)}[child]
     
     def get_child_policy_varentropy(self, child):
-        # 提取logit值并转换为数组
+        # 提取logit值并转换为数组 - Extract logit values and convert to array
         logits = torch.tensor(list(self.policy_varentropy.values()))
         prob, log_prob = robust_softmax(logits)
 
-        # 构建新的字典，将键与Softmax概率对应
+        # 构建新的字典，将键与Softmax概率对应 - Build a new dictionary, mapping keys to Softmax probabilities
         return {key: prob for key, prob in zip(self.policy_varentropy.keys(), prob)}[child]
     
 
@@ -183,7 +183,7 @@ class TreeNode:
 class MCTS:
     def __init__(
         self,
-        envoirment,
+        environment,
         model,
         tokenizer,
         num_simulations=-1,
@@ -193,7 +193,7 @@ class MCTS:
         reward_epsilon=1e-6,
         patient=2
     ):
-        self.envoirment = envoirment
+        self.environment = environment
         self.model = model
         self.tokenizer = tokenizer
         self.num_simulations = num_simulations if num_simulations != -1 else 32
@@ -240,7 +240,7 @@ class MCTS:
         return node.value
 
     def expand_node(self, node):
-        texts, policy_probs, entropys, varentropys = meta_compute_policy_head(self.model, self.tokenizer, node, self.num_candidates, envoirment=self.envoirment)
+        texts, policy_probs, entropys, varentropys = meta_compute_policy_head(self.model, self.tokenizer, node, self.num_candidates, environment=self.environment)
 
         for i, (text, policy_prob, entropy, varentropy) in enumerate(zip(texts, policy_probs, entropys, varentropys)):
             child_node = TreeNode(
@@ -253,7 +253,7 @@ class MCTS:
             node.add_child(child_node)
             child_node.value = self.compute_value(child_node)
             if "<conclusion>" in child_node.state:
-                if self.envoirment.compute_rule_orm_head(child_node):
+                if self.environment.compute_rule_orm_head(child_node):
                     self.patient -= 1
                     child_node.leaf_type = "successful"
                 else:
@@ -325,7 +325,7 @@ import torch.nn.functional as F
 from functools import lru_cache
 import random
 
-# 模板生成函数
+# 模板生成函数 - template generation function
 def problem_declaration_template(problem):
     return f"<start_of_father_id>-1<end_of_father_id><start_of_local_id>0<end_of_local_id><start_of_thought><problem>{problem}<end_of_thought>"
 
@@ -364,7 +364,7 @@ def find_max_reward_path(node):
         node = max(node.children, key=lambda x: x.value)
     return math.exp(reward), path
 
-# 数值稳定的 softmax 函数
+# 数值稳定的 softmax 函数 - numerically stable softmax
 def robust_softmax(logits):
     logits = torch.tensor(logits) if not isinstance(logits, torch.Tensor) else logits
     log_probs = F.log_softmax(logits, dim=-1)
@@ -372,7 +372,7 @@ def robust_softmax(logits):
     return probs, log_probs
 
 
-# 长度归一化的对数概率、熵和熵的方差计算
+# 长度归一化的对数概率、熵和熵的方差计算 - computes length-normalized log prob, also calculates entropy and entropy variance
 def length_normed_log_probs(sequence_ids, logits_tensor, attention_mask=None, return_entropy=False, return_varentropy=False):
     logits_tensor = logits_tensor[..., :-1, :].contiguous()
     sequence_ids = sequence_ids[..., 1:].contiguous()
@@ -409,16 +409,16 @@ def length_normed_log_probs(sequence_ids, logits_tensor, attention_mask=None, re
         return normalized_log_probs
 
 
-# 策略生成的主要函数
+# 策略生成的主要函数 - main function to generate strategy (generates candidates and computes normalized logprobs, entropy, and entropy variance)
 @torch.no_grad()
-def compute_policy_head(model, tokenizer, selected_node, num_candidates=3, meta="", envoirment=None):
+def compute_policy_head(model, tokenizer, selected_node, num_candidates=3, meta="", environment=None):
     local_id = get_max_node_id_in_tree(selected_node) + 1
     hint_text = {
         "<conclusion>": hint_for_critics,
         "<problem>": hint_for_divide_and_conquer,
         "<critic>": hint_for_critics,
         "<refine>": hint_for_refine,
-    }.get(meta, hint.format(GT=envoirment.get_ground_truth(selected_node)))
+    }.get(meta, hint.format(GT=environment.get_ground_truth(selected_node)))
 
     inputs_string = policy_head_template(selected_node, local_id, meta, hint_text)
     inputs = tokenizer(
@@ -463,7 +463,7 @@ def compute_policy_head(model, tokenizer, selected_node, num_candidates=3, meta=
     return generated_texts, normalized_probs.tolist(), normalized_entropy.tolist(), varentropy.tolist()
 
 
-# 价值头生成函数
+# 价值头生成函数 - value head generation function (estimates value of node by passing value template through model, get log prob of positive rating token (vs negative rating token))
 @torch.no_grad()
 def compute_value_head(model, tokenizer, node):
     text_for_value = value_head_template(node) + '<positive_rating>'
@@ -484,18 +484,18 @@ def compute_value_head(model, tokenizer, node):
     return log_probs[:, 0].item()
 
 
-# 元策略生成函数
+# 元策略生成函数 - meta-strategy generation function (return policy head candidates with/without randomly selected metas (types of useful continuations))
 @torch.no_grad()
-def meta_compute_policy_head(model, tokenizer, selected_node, num_candidates=3, meta_ratio=0.5, envoirment=None):
+def meta_compute_policy_head(model, tokenizer, selected_node, num_candidates=3, meta_ratio=0.5, environment=None):
     if random.random() < meta_ratio:
-        return compute_policy_head(model, tokenizer, selected_node, num_candidates, envoirment=envoirment)
+        return compute_policy_head(model, tokenizer, selected_node, num_candidates, environment=environment)
 
     metas = random.choices(meta_action_types, meta_action_types_weight, k=num_candidates)
     generated_texts, policy_probs, normalized_entropys, varentropys = [], [], [], []
 
     for meta in metas:
         texts, policy_probs, normalized_entropy, varentropy = compute_policy_head(model, tokenizer,
-            selected_node, num_candidates=1, meta=meta, envoirment=envoirment
+            selected_node, num_candidates=1, meta=meta, environment=environment
         )
         generated_texts.append(texts[0])
         policy_probs.append(policy_probs[0])
@@ -550,15 +550,18 @@ def forward_value_predict(model, tokenizer, inputs):
     pos = attention_mask.sum(dim=1) - 1  # [batch_size]
 
     # 获取 "<positive_rating>" 和 "<negative_rating>" 的 token ID
+    # Get the "<positive rating>" and "<negative rating>" token IDs
     positive_token_id = tokenizer.convert_tokens_to_ids("<positive_rating>")
     negative_token_id = tokenizer.convert_tokens_to_ids("<negative_rating>")
 
-    # 构建索引张量
+    # 构建索引张量 - built index tensor (of positive and negative rating IDs)
     batch_size = logits.size(0)
     indices = torch.tensor([positive_token_id, negative_token_id], device=accelerator.device)  # [2]
 
     # 扩展 indices 以匹配输入 logits 的维度
+    # Expand indices to match the dimensions of the input logits (get logits for each batch element at pos)
     selected_logit = logits[range(batch_size), pos]  # [batch_size, num_tokens]
+    # Extract the logits of the specified token in each row (get the positive/negative logits)
     selected_logit = selected_logit[:, indices]      # 提取每行中指定 token 的 logits
 
     return selected_logit
@@ -598,7 +601,7 @@ def traverse_tree(node):
             continue
 
 def compute_gae_from_node(node, gamma=0.99, lambda_=0.95):
-    # 回溯到根节点并记录路径
+    # 回溯到根节点并记录路径 - Backtrack to the root node and record the path
     path = []
     current_node = node
     while current_node.parent is not None:
@@ -606,22 +609,25 @@ def compute_gae_from_node(node, gamma=0.99, lambda_=0.95):
         current_node = current_node.parent
     
     # 从根节点（路径起点）向下遍历到目标节点，逐步计算 GAE
+    # Traverse down from root node (path starting point) to given node, and calculate the GAE step by step
     gae = 0
-    factor = 1  # 用于累乘 (gamma * lambda) 的系数
+    factor = 1  # 用于累乘 (gamma * lambda) 的系数 - Coefficient for TD error, iteratively multiplied by (gamma * lambda) as we traverse path
 
     # 从根节点开始遍历路径到指定节点
+    # Traverse the path from the root node to the given node
     for i in range(len(path) - 1):  # path[-1] 是目标节点，不需要再计算 TD 误差
+        # path[-1] is the given node, we don't need to calculate TD error
         current_node = path[i]
         next_node = path[i + 1]
         next_node_reward = next_node.true_value_from_tree if next_node.true_value_from_tree is not None else next_node.value
         next_node_value = next_node.value
         current_node_value = current_node.value
 
-        # 计算 TD 误差
+        # 计算 TD 误差 - calculate TD error
         td_error = next_node_reward + gamma * next_node_value - current_node_value
-        # 根据 GAE 累积 TD 误差
+        # 根据 GAE 累积 TD 误差 - accumulate TD error (multiplied by factor) according to GAE
         gae += factor * td_error
-        # 更新系数，准备下一步的累积
+        # 更新系数，准备下一步的累积 - update factor coefficient, prepare for the next accumulation step
         factor *= gamma * lambda_
 
     return gae
@@ -716,14 +722,14 @@ class PrioritizedReplayBuffer:
 
 
 class RLSPTrainer(Trainer):
-    def __init__(self, envoirment, model, tokenizer, mcts, replay_buffer_capacity, args, **kwargs):
+    def __init__(self, environment, model, tokenizer, mcts, replay_buffer_capacity, args, **kwargs):
         super().__init__(
             model=model,
             processing_class=tokenizer,
             args=args,
             **kwargs
         )
-        self.envoirment = envoirment
+        self.environment = environment
         self.mcts = mcts
         self.tokenizer = tokenizer
         self.replay_buffer = PrioritizedReplayBuffer(capacity=replay_buffer_capacity)
@@ -865,7 +871,7 @@ class RLSPTrainer(Trainer):
             print(f"Starting iteration {iteration + 1}/{num_iterations}")
 
             # Self-play to collect new experiences
-            initial_state = self.envoirment.sample_initial_state()
+            initial_state = self.environment.sample_initial_state()
             root_node = self.self_play(initial_state)
             self.collect_experience(root_node)
 
@@ -927,7 +933,10 @@ from grading import check
 class Environment:
     def __init__(self, problems):
         """
-        初始化环境。
+        初始化环境。- Initialize the Environment
+        
+        parameters:
+        - problems: list of dicts containing math problems and answers, each dict has 'problem' and 'ground_truth' keys
 
         参数：
         - problems: 一个包含数学问题和答案的字典列表，每个字典包含 'problem' 和 'ground_truth' 键。
@@ -939,6 +948,11 @@ class Environment:
     def sample_initial_state(self):
         """
         从问题列表中随机采样一个初始状态（数学问题）。
+        From list of problems, randomly sample an initial state (math problem)
+
+        returns:
+        - initial_state: question text for selected problem
+        - ground_truth: correct answer for selected problem, used for answer verification
 
         返回：
         - initial_state: 选中的问题文本。
@@ -952,7 +966,15 @@ class Environment:
     def is_terminal_state(self, state, ground_truth):
         """
         判断当前状态是否为终止状态（正确答案）。
+        Determine if current state is a terminal state (correct answer)
 
+        parameters:
+        - state: the current text
+        - ground_truth: the correct answer to the current question
+        
+        return:
+        - is_terminal: bool, whether the given state is terminal
+        
         参数：
         - state: 当前状态文本。
         - ground_truth: 当前问题的正确答案。
@@ -961,6 +983,7 @@ class Environment:
         - is_terminal: 布尔值，表示是否为终止状态。
         """
         # 使用 compute_rule_orm_head 函数判断
+        # use compute_rule_orm_head function to judge
         result = self.compute_rule_orm_head(state, ground_truth)
         return result
     
@@ -968,10 +991,19 @@ class Environment:
         return self.inverse_mapping.get(get_root(node).state)
 
     # 判断状态是否为正确答案的函数
+    # function to determine if state is correct answer
     def compute_rule_orm_head(self, node):
         """
         使用 grading 模块的 check 函数判断状态是否为正确答案。
+        Use grading module's check function to determine if state is correct answer
 
+        parameters：
+        - state: the current text
+        - ground_truth: the correct answer to the current question
+
+        return：
+        - result: bool, whether the given state is the correct answer
+        
         参数：
         - state: 当前状态文本。
         - ground_truth: 当前问题的正确答案。
@@ -980,6 +1012,7 @@ class Environment:
         - result: 布尔值，表示状态是否为正确答案。
         """
         # 将状态和正确答案传入 check 函数进行比较
+        # pass the state and ground_truth answer to `check` for comparison
         try:
             ground_truth = self.inverse_mapping.get(get_root(node).state)
             result = check(ground_truth, node.state, "")
@@ -991,9 +1024,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AdamW
 import torch
 
 # 假设您已经定义了 TreeNode、MCTS 和 RLSPTrainer 类
+# Assuming you have already defined TreeNode, MCTS, and RSLPTrainer classes
 
 # 加载模型和 tokenizer
-model_name = "/mnt/hwfile/ai4chem/CKPT/longcot_pt_GEMMA_ZD_10_23_1"
+# load the model and tokenizer
+model_name = "qq8933/OpenLongCoT-Base-Gemma2-2B"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(
     model_name, torch_dtype=torch.bfloat16,
@@ -1001,25 +1036,27 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 # 设置 LoRA 配置
+# Setup the LoRA configuration
 lora_config = LoraConfig(
-    r=32,  # 低秩矩阵的秩
-    lora_alpha=16,  # LoRA 的缩放系数
-    target_modules=["k_proj","q_proj","o_proj", "v_proj","down_proj","gate_proj","up_proj",],  # 目标模块，通常是查询和键的投影层
-    lora_dropout=0.1,  # dropout 概率
-    bias="none",  # 不在 LoRA 中包含偏置
+    r=32,  # 低秩矩阵的秩 - rank of the 'low-rank' matrix
+    lora_alpha=16,  # LoRA 的缩放系数 - LoRA's scaling factor
+    target_modules=["k_proj","q_proj","o_proj", "v_proj","down_proj","gate_proj","up_proj",],  # 目标模块，通常是查询和键的投影层 - target modules, usually the query and key projection layers
+    lora_dropout=0.1,  # dropout 概率 - dropout probability
+    bias="none",  # 不在 LoRA 中包含偏置 - don't include bias in LoRA
 )
 
 # 使用 peft 将模型转换为 LoRA 微调模型
+# Use peft to prepare model with LoRA config for finetuning
 model = get_peft_model(model, lora_config)
 
 print("Model successfully converted to LoRA format.")
 
-# # 初始化优化器
+# # 初始化优化器 - initialize the optimizer
 # optimizer = AdamW(model.parameters(), lr=1e-4)
 
 
 
-# 初始状态和 MCTS 参数
+# 初始状态和 MCTS 参数 - initialize state and MCTS parameters
 num_simulations = 32
 num_candidates_per_expansion = 1
 exploration_const = 1.4
@@ -1036,11 +1073,11 @@ ds = load_dataset("lighteval/MATH", "all")['train']
 
 problems = [{"problem": p['problem'], "ground_truth": p['solution']} for p in ds]
 
-envoirment = Environment(problems)
+environment = Environment(problems)
 
-# 创建 MCTS 实例
+# 创建 MCTS 实例 - Create MCTS instance
 mcts = MCTS(
-    envoirment=envoirment,
+    environment=environment,
     model=model,
     tokenizer=tokenizer,
     num_simulations=num_simulations,
@@ -1052,9 +1089,9 @@ mcts = MCTS(
 
 args = TrainingArguments(gradient_accumulation_steps=32,per_device_train_batch_size=4,output_dir='./output')
 
-# 创建 RLSPTrainer 实例
+# 创建 RLSPTrainer 实例 - Create RLSPTrainer instance
 trainer = RLSPTrainer(
-    envoirment=envoirment,
+    environment=environment,
     model=model,
     tokenizer=tokenizer,
     mcts=mcts,
@@ -1065,9 +1102,9 @@ trainer = RLSPTrainer(
 accelerator = trainer.accelerator
 model = model.to(accelerator.device)
 
-# 设置训练轮数和批次大小
+# 设置训练轮数和批次大小 - set the number of training iterations and batch size
 num_iterations = 8
 
-# 执行训练
+# 设置训练轮数和批次大小 - set the number of training iterations and batch size
 trainer.train(num_iterations=num_iterations)
 trainer.save_model("./checkpoint-1")
