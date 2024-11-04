@@ -7,7 +7,8 @@ Large Reasoning Models powered by Monte Carlo Tree Search (MCTS), Self-Play Rein
   working in progress
 
  
-[] Deepspeed initialization bug
+[x] Deepspeed initialization bug
+fixed
 ## Tutorials
 [From AlphaGO Zero to RLHF...TBD]()
 ## Datasets
