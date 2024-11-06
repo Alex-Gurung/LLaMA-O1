@@ -126,6 +126,7 @@ DummyTransitionProbs = np.array([[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]
 def flatten_tree(node):
     """
     将树结构展开为列表，收集父节点、子节点和对应的值。
+    Flatten node's tree structure into lists, collecting parent nodes, child nodes, and corresponding values.
     """
     parents = []
     children = []
@@ -145,16 +146,20 @@ def flatten_tree(node):
 def cal_meta_transition_probs(node):
     num_meta_actions = len(meta_action_types)
     # 展开树结构，获取父节点索引、子节点索引和对应的值
+    # Flatten the tree structure to get the parent node index, child node index and corresponding values
     parents, children, values = flatten_tree(node)
     # 初始化转移概率矩阵
+    # Initialize the transition probability matrix
     TransitionProbs = np.zeros((num_meta_actions, num_meta_actions))
     # 使用 NumPy 的高级索引和累加来更新矩阵
+    # Use NumPy's advanced indexing and accumulation to update the matrix
     if len(parents) > 0:
         np.add.at(TransitionProbs, (parents, children), values)
     return TransitionProbs
 
 def np_softmax(x):
     # 对矩阵的每一行进行 softmax 操作
+    # Perform softmax operation on each row of the matrix
     max_vals = np.max(x, axis=1, keepdims=True)
     e_x = np.exp(x - max_vals)
     sum_e_x = np.sum(e_x, axis=1, keepdims=True)
@@ -166,10 +171,12 @@ def sampling_meta_action(node, num=1, TransitionProbs=None):
         root = get_root(node)
         TransitionProbs = cal_meta_transition_probs(root)
     # 计算转移概率的 softmax
+    # Compute the softmax of transition probabilities
     transition_probs_softmax = np_softmax(TransitionProbs)
     i = meta_action_type_to_index[node.meta]
     p = transition_probs_softmax[i]
     # 进行采样
+    # Take sample
     meta_actions = np.random.choice(meta_action_types, size=num, p=p)
     return meta_actions
 
